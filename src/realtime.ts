@@ -353,24 +353,24 @@ export class RealtimeClient {
       const wsUrl = `${this.url}?userId=${this.userId}&name=${encodeURIComponent(this.userName)}`;
       this.ws = new WebSocket(wsUrl);
 
-      this.ws.onopen = () => {
+      this.ws.addEventListener('open', () => {
         this.reconnectAttempts = 0;
         resolve();
-      };
+      });
 
-      this.ws.onmessage = (event) => {
-        const message = JSON.parse(event.data);
+      this.ws.addEventListener('message', (event: MessageEvent) => {
+        const message = JSON.parse(event.data as string);
         this.emit(message.type, message);
-      };
+      });
 
-      this.ws.onclose = () => {
+      this.ws.addEventListener('close', () => {
         this.emit('disconnect', {});
         this.attemptReconnect();
-      };
+      });
 
-      this.ws.onerror = (error) => {
+      this.ws.addEventListener('error', (error: Event) => {
         reject(error);
-      };
+      });
     });
   }
 

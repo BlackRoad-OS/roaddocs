@@ -1,72 +1,54 @@
-# .github/workflows/autonomous-agent.yml
-# Drop this in any repo - agent handles everything
+# CI/CD for RoadDocs
+# Builds, typechecks, and validates on every push and PR.
+# Auto-merges PRs only after CI passes (no --admin bypass).
 
-name: Autonomous Repo Agent
+name: CI
 
 on:
   pull_request:
     types: [opened, synchronize]
   push:
-    branches: [main]
-  schedule:
-    - cron: '0 */6 * * *'  # Every 6 hours, agent checks in
+    branches: [main, master]
 
 permissions:
-  contents: write
+  contents: read
   pull-requests: write
-  issues: write
 
 jobs:
-  autonomous-build:
+  ci:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
         with:
-          fetch-depth: 0
-          
-      - name: Detect Project Type & Run Tests
-        id: detect
-        run: |
-          # Auto-detect and run appropriate tests
-          if [ -f "package.json" ]; then
-            npm ci --ignore-scripts 2>/dev/null || npm install --ignore-scripts 2>/dev/null || true
-            npm test 2>/dev/null || echo "tests=skipped" >> $GITHUB_OUTPUT
-          elif [ -f "requirements.txt" ]; then
-            pip install -r requirements.txt 2>/dev/null || true
-            pytest 2>/dev/null || python -m unittest discover 2>/dev/null || echo "tests=skipped" >> $GITHUB_OUTPUT
-          elif [ -f "Cargo.toml" ]; then
-            cargo test 2>/dev/null || echo "tests=skipped" >> $GITHUB_OUTPUT
-          elif [ -f "go.mod" ]; then
-            go test ./... 2>/dev/null || echo "tests=skipped" >> $GITHUB_OUTPUT
-          elif [ -f "sfdx-project.json" ]; then
-            # Salesforce - just validate XML
-            find . -name "*.xml" -exec xmllint --noout {} \; 2>/dev/null || true
-            echo "tests=skipped" >> $GITHUB_OUTPUT
-          else
-            echo "tests=skipped" >> $GITHUB_OUTPUT
-          fi
-          echo "status=success" >> $GITHUB_OUTPUT
+          node-version: '20'
+          cache: 'npm'
 
-      - name: Build if needed
-        run: |
-          if [ -f "package.json" ]; then
-            npm run build 2>/dev/null || true
-          fi
+      - name: Install dependencies
+        run: npm ci
 
-      - name: Auto-merge PR
-        if: github.event_name == 'pull_request'
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+  auto-merge:
+    needs: ci
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Auto-merge if CI passed
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Enable auto-merge immediately - don't wait
-          gh pr merge ${{ github.event.pull_request.number }} --auto --squash || \
-          gh pr merge ${{ github.event.pull_request.number }} --squash --admin || \
-          echo "Will merge on next run"
-          
-      - name: Report Status
-        if: always()
-        run: |
-          echo "✅ Autonomous agent completed"
-          echo "Repo: ${{ github.repository }}"
-          echo "Event: ${{ github.event_name }}"
-          echo "Status: Success - auto-handling enabled"
+          gh pr merge ${{ github.event.pull_request.number }} \
+            --auto --squash \
+            --repo ${{ github.repository }} || echo "Auto-merge not available - will merge when requirements are met"

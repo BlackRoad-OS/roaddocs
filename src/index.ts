@@ -12,9 +12,15 @@
 
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { createPaywallRoutes, AccessControlManager, SubscriptionChecker } from './paywall';
+
+// Re-export Durable Object for Cloudflare binding
+export { RealtimeDocument } from './realtime';
 
 interface Env {
   DOCS: KVNamespace;
+  STRIPE_KEY?: string;
+  REALTIME_DOCUMENT?: DurableObjectNamespace;
 }
 
 interface Doc {
@@ -504,5 +510,31 @@ function renderError(message: string): string {
 <div style="text-align:center"><h1 style="color:#F5A623">404</h1><p>${message}</p></div>
 </body></html>`;
 }
+
+// Mount paywall routes
+app.route('/paywall', (() => {
+  const accessControl = new AccessControlManager();
+  accessControl.loadRules([
+    { pattern: '/docs/pro/*', minLevel: 'pro', previewLines: 10 },
+    { pattern: '/docs/enterprise/*', minLevel: 'enterprise', previewLines: 5 },
+    { pattern: '/docs/starter/*', minLevel: 'starter', previewPercentage: 30 },
+  ]);
+  // SubscriptionChecker needs the KV binding at request time; use a lazy wrapper
+  // For now, create with a placeholder - the routes handle missing env gracefully
+  const checker = new SubscriptionChecker(null as unknown as KVNamespace);
+  return createPaywallRoutes(accessControl, checker, '/upgrade');
+})());
+
+// Realtime WebSocket upgrade endpoint
+app.all('/realtime/:docId', async (c) => {
+  const env = c.env as Env;
+  if (!env.REALTIME_DOCUMENT) {
+    return c.json({ error: 'Realtime collaboration not configured' }, 503);
+  }
+  const docId = c.req.param('docId');
+  const id = env.REALTIME_DOCUMENT.idFromName(docId);
+  const stub = env.REALTIME_DOCUMENT.get(id);
+  return stub.fetch(c.req.raw);
+});
 
 export default app;

@@ -4,7 +4,14 @@ compatibility_date = "2024-01-01"
 
 [[kv_namespaces]]
 binding = "DOCS"
-id = "roaddocs-content"
+id = "placeholder-replace-with-real-kv-id"
+preview_id = "placeholder-replace-with-real-preview-kv-id"
 
-[site]
-bucket = "./public"
+[durable_objects]
+bindings = [
+  { name = "REALTIME_DOCUMENT", class_name = "RealtimeDocument" }
+]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["RealtimeDocument"]
